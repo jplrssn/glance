@@ -6,8 +6,10 @@ use ratatui::text::{Line, Text};
 use ratatui::widgets::block::Block;
 use ratatui::Frame;
 
-mod fileview;
-use fileview::FileView;
+use std::sync::Arc;
+use std::thread;
+
+mod file;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -17,16 +19,27 @@ struct CliOpts {
 
 fn main() {
     let cli = CliOpts::parse();
-    let mut fileview = match FileView::open(&cli.file) {
+    let file = match file::File::open(&cli.file) {
         Ok(f) => f,
         Err(e) => panic!("Failed to open file '{}': {}", cli.file, e),
     };
 
-    fileview.build_linemap();
+    let metadata = file::Metadata::new();
+
+    launch_background_work(&file, &metadata);
 
     let mut terminal = ratatui::init();
-    run(&mut terminal, &mut fileview, &cli);
+    run(&mut terminal, &cli, &file, &metadata);
     ratatui::restore();
+}
+
+fn launch_background_work(file: &file::FilePtr, metadata: &file::MetadataPtr) {
+    let file = Arc::clone(file);
+    let metadata = Arc::clone(metadata);
+
+    thread::spawn(move || {
+        file.build_linemap(&metadata);
+    });
 }
 
 enum Command {
@@ -36,7 +49,6 @@ enum Command {
 }
 
 struct UIState {
-    num_lines: u64,
     cur_line: u64,
     cur_col: u64,
     filename: String,
@@ -54,8 +66,13 @@ impl UIState {
         self.cur_line = newpos;
     }
 
-    fn scroll_down(&mut self, amt: u64) {
-        let newpos = std::cmp::min(self.cur_line + amt, self.num_lines - 1);
+    fn scroll_down(&mut self, metadata: &file::MetadataPtr, amt: u64) {
+        let metadata = metadata.lock().unwrap();
+        let newpos = if metadata.num_lines > 0 {
+            std::cmp::min(self.cur_line + amt, metadata.num_lines - 1)
+        } else {
+            0
+        };
         self.cur_line = newpos;
     }
 }
@@ -65,9 +82,13 @@ enum EventResult {
     Exit,
 }
 
-fn run(terminal: &mut ratatui::DefaultTerminal, fileview: &mut FileView, cli: &CliOpts) -> () {
+fn run(
+    terminal: &mut ratatui::DefaultTerminal,
+    cli: &CliOpts,
+    file: &file::FilePtr,
+    metadata: &file::MetadataPtr,
+) -> () {
     let mut ui = UIState {
-        num_lines: fileview.num_lines,
         cur_line: 0,
         cur_col: 0,
         filename: cli.file.clone(),
@@ -77,18 +98,25 @@ fn run(terminal: &mut ratatui::DefaultTerminal, fileview: &mut FileView, cli: &C
     let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     loop {
         terminal
-            .draw(|f| render(f, fileview, &ui))
+            .draw(|f| render(f, file, metadata, &ui))
             .expect("failed to draw frame");
 
-        let event = event::read().expect("failed to read event");
-        match handle_event(&event, &mut ui) {
-            EventResult::Exit => break,
-            _ => {}
-        };
+        if event::poll(std::time::Duration::from_millis(1000)).expect("failed to poll event") {
+            let event = event::read().expect("failed to read event");
+            match handle_event(&event, file, metadata, &mut ui) {
+                EventResult::Exit => break,
+                _ => {}
+            };
+        }
     }
 }
 
-fn handle_event(event: &Event, ui: &mut UIState) -> EventResult {
+fn handle_event(
+    event: &Event,
+    file: &file::FilePtr,
+    metadata: &file::MetadataPtr,
+    ui: &mut UIState,
+) -> EventResult {
     // Any keypress clears an error
     if let Command::Error(_) = ui.cmd {
         ui.cmd = Command::Idle;
@@ -107,12 +135,12 @@ fn handle_event(event: &Event, ui: &mut UIState) -> EventResult {
                 cmd.pop();
             }
             (KeyCode::Esc, Command::Cmd(_)) => ui.cmd = Command::Idle,
-            (KeyCode::Down, Command::Idle) => ui.scroll_down(1),
+            (KeyCode::Down, Command::Idle) => ui.scroll_down(metadata, 1),
             (KeyCode::Up, Command::Idle) => ui.scroll_up(1),
             _ => {}
         },
         Event::Mouse(mouse) => match (mouse.kind, &mut ui.cmd) {
-            (MouseEventKind::ScrollDown, Command::Idle) => ui.scroll_down(1),
+            (MouseEventKind::ScrollDown, Command::Idle) => ui.scroll_down(metadata, 1),
             (MouseEventKind::ScrollUp, Command::Idle) => ui.scroll_up(1),
             _ => {}
         },
@@ -131,17 +159,23 @@ fn parse_cmd(cmd: &str, ui: &mut UIState) -> EventResult {
     }
 }
 
-fn render(frame: &mut Frame, fileview: &FileView, ui: &UIState) {
+fn render(frame: &mut Frame, file: &file::FilePtr, metadata: &file::MetadataPtr, ui: &UIState) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![Constraint::Min(1), Constraint::Length(1)]);
     let [content_area, ui_area] = vertical.areas(frame.area());
 
-    render_content(frame, content_area, ui, fileview);
-    render_ui(frame, ui_area, ui);
+    render_content(frame, content_area, file, metadata, ui);
+    render_ui(frame, ui_area, file, metadata, ui);
 }
 
-fn render_content(frame: &mut Frame, rect: Rect, ui: &UIState, fileview: &FileView) {
+fn render_content(
+    frame: &mut Frame,
+    rect: Rect,
+    file: &file::FilePtr,
+    metadata: &file::MetadataPtr,
+    ui: &UIState,
+) {
     let view_col_begin: u64 = ui.cur_col;
     let view_col_end = view_col_begin + rect.width as u64;
 
@@ -150,18 +184,25 @@ fn render_content(frame: &mut Frame, rect: Rect, ui: &UIState, fileview: &FileVi
 
     let mut lines: Vec<Line> = vec![];
 
+    let metadata = metadata.lock().unwrap();
     for line_idx in view_line_begin..view_line_end {
-        if line_idx >= fileview.num_lines {
+        if line_idx >= metadata.num_lines {
             break;
         }
-        let line = Line::from(fileview.get_text(line_idx, view_col_begin, view_col_end));
+        let line = Line::from(file.get_text(&metadata, line_idx, view_col_begin, view_col_end));
         lines.push(line);
     }
 
     frame.render_widget(Text::from(lines), rect);
 }
 
-fn render_ui(frame: &mut Frame, rect: Rect, ui: &UIState) {
+fn render_ui(
+    frame: &mut Frame,
+    rect: Rect,
+    file: &file::FilePtr,
+    metadata: &file::MetadataPtr,
+    ui: &UIState,
+) {
     use ratatui::style::Stylize;
 
     let horizontal = Layout::default()
@@ -170,13 +211,18 @@ fn render_ui(frame: &mut Frame, rect: Rect, ui: &UIState) {
     let [cmd_area, line_area] = horizontal.areas(rect);
 
     let block = Block::new().gray().on_dark_gray();
+    let metadata = metadata.lock().unwrap();
 
     // Line is 1-based in the UI
     let line_no = ui.cur_line + 1;
-    let line_percent = line_no * 100 / ui.num_lines;
+    let line_percent = if metadata.num_lines > 0 {
+        line_no * 100 / metadata.num_lines
+    } else {
+        0
+    };
     let linedescr = format!(
         " {}% ☰ {}/{} ㏑:{} ",
-        line_percent, line_no, ui.num_lines, ui.cur_col
+        line_percent, line_no, metadata.num_lines, ui.cur_col
     );
     let linedescr_text = Text::from(linedescr).right_aligned();
 
