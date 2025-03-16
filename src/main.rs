@@ -135,13 +135,13 @@ fn handle_event(
                 cmd.pop();
             }
             (KeyCode::Esc, Command::Cmd(_)) => ui.cmd = Command::Idle,
-            (KeyCode::Down, Command::Idle) => ui.scroll_down(metadata, 1),
-            (KeyCode::Up, Command::Idle) => ui.scroll_up(1),
+            (KeyCode::Down, _) => ui.scroll_down(metadata, 1),
+            (KeyCode::Up, _) => ui.scroll_up(1),
             _ => {}
         },
         Event::Mouse(mouse) => match (mouse.kind, &mut ui.cmd) {
-            (MouseEventKind::ScrollDown, Command::Idle) => ui.scroll_down(metadata, 1),
-            (MouseEventKind::ScrollUp, Command::Idle) => ui.scroll_up(1),
+            (MouseEventKind::ScrollDown, _) => ui.scroll_down(metadata, 1),
+            (MouseEventKind::ScrollUp, _) => ui.scroll_up(1),
             _ => {}
         },
         _ => {}
