@@ -99,7 +99,7 @@ impl UIState {
 
     fn scroll_right(&mut self, metadata: &file::MetadataPtr, amt: u64) {
         let metadata = metadata.lock().unwrap();
-        let max_col = metadata.num_cols(self.cur_line);
+        let max_col = metadata.max_num_cols;
         let newpos = if max_col > 0 {
             std::cmp::min(self.cur_col + amt, max_col - 1)
         } else {
@@ -167,15 +167,17 @@ fn handle_event(
                 cmd.pop();
             }
             (KeyCode::Esc, Command::Cmd(_)) => ui.cmd = Command::Idle,
-            (KeyCode::Down, _) => ui.scroll_down(metadata, 1),
             (KeyCode::Up, _) => ui.scroll_up(1),
+            (KeyCode::Down, _) => ui.scroll_down(metadata, 1),
             (KeyCode::Left, _) => ui.scroll_left(1),
             (KeyCode::Right, _) => ui.scroll_right(metadata, 1),
             _ => {}
         },
         Event::Mouse(mouse) => match (mouse.kind, &mut ui.cmd) {
-            (MouseEventKind::ScrollDown, _) => ui.scroll_down(metadata, 1),
             (MouseEventKind::ScrollUp, _) => ui.scroll_up(1),
+            (MouseEventKind::ScrollDown, _) => ui.scroll_down(metadata, 1),
+            (MouseEventKind::ScrollLeft, _) => ui.scroll_left(1),
+            (MouseEventKind::ScrollRight, _) => ui.scroll_right(metadata, 1),
             _ => {}
         },
         _ => {}
@@ -261,8 +263,10 @@ fn render_ui(
     let block = Block::new().gray().on_dark_gray();
     let metadata = metadata.lock().unwrap();
 
-    // Line is 1-based in the UI
+    // Line and Col are 1-based in the UI
     let line_no = ui.cur_line + 1;
+    let col_no = ui.cur_col + 1;
+
     let line_percent = if metadata.num_lines > 0 {
         line_no * 100 / metadata.num_lines
     } else {
@@ -270,7 +274,7 @@ fn render_ui(
     };
     let linedescr = format!(
         " {}% ☰ {}/{} ㏑:{} ",
-        line_percent, line_no, metadata.num_lines, ui.cur_col
+        line_percent, line_no, metadata.num_lines, col_no
     );
     let linedescr_text = Text::from(linedescr).right_aligned();
 
