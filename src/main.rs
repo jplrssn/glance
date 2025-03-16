@@ -6,7 +6,6 @@ use ratatui::text::{Line, Text};
 use ratatui::widgets::block::Block;
 use ratatui::Frame;
 
-use std::fs::metadata;
 use std::sync::Arc;
 use std::thread;
 
@@ -145,7 +144,7 @@ fn run(
 
 fn handle_event(
     event: &Event,
-    file: &file::FilePtr,
+    _: &file::FilePtr,
     metadata: &file::MetadataPtr,
     ui: &mut UIState,
 ) -> EventResult {
@@ -249,7 +248,7 @@ fn render_content(
 fn render_ui(
     frame: &mut Frame,
     rect: Rect,
-    file: &file::FilePtr,
+    _: &file::FilePtr,
     metadata: &file::MetadataPtr,
     ui: &UIState,
 ) {

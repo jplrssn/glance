@@ -1,7 +1,6 @@
 use memmap::Mmap;
 use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
-use std::thread::{self, sleep};
 use std::{cmp::max, io::Error};
 
 pub struct File {
@@ -104,14 +103,5 @@ impl Metadata {
             line_to_num_cols: vec![],
         };
         Arc::new(Mutex::new(m))
-    }
-
-    pub fn num_cols(&self, line: u64) -> u64 {
-        let line_idx = line as usize;
-        if line_idx < self.line_to_num_cols.len() {
-            self.line_to_num_cols[line_idx]
-        } else {
-            0
-        }
     }
 }
