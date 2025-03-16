@@ -57,7 +57,7 @@ struct UIState {
 }
 
 impl UIState {
-    fn scroll_to(&mut self, metadata: &file::MetadataPtr, line: u64) {
+    fn scroll_to_y(&mut self, metadata: &file::MetadataPtr, line: u64) {
         let metadata = metadata.lock().unwrap();
         let newpos = if metadata.num_lines > 0 {
             std::cmp::min(line, metadata.num_lines - 1)
@@ -85,6 +85,27 @@ impl UIState {
             0
         };
         self.cur_line = newpos;
+    }
+
+    fn scroll_left(&mut self, amt: u64) {
+        // Avoid underflow
+        let newpos: u64 = if amt > self.cur_col {
+            0
+        } else {
+            self.cur_col - amt
+        };
+        self.cur_col = newpos;
+    }
+
+    fn scroll_right(&mut self, metadata: &file::MetadataPtr, amt: u64) {
+        let metadata = metadata.lock().unwrap();
+        let max_col = metadata.num_cols(self.cur_line);
+        let newpos = if max_col > 0 {
+            std::cmp::min(self.cur_col + amt, max_col - 1)
+        } else {
+            0
+        };
+        self.cur_col = newpos;
     }
 }
 
@@ -148,6 +169,8 @@ fn handle_event(
             (KeyCode::Esc, Command::Cmd(_)) => ui.cmd = Command::Idle,
             (KeyCode::Down, _) => ui.scroll_down(metadata, 1),
             (KeyCode::Up, _) => ui.scroll_up(1),
+            (KeyCode::Left, _) => ui.scroll_left(1),
+            (KeyCode::Right, _) => ui.scroll_right(metadata, 1),
             _ => {}
         },
         Event::Mouse(mouse) => match (mouse.kind, &mut ui.cmd) {
@@ -175,7 +198,7 @@ fn parse_cmd(cmd: &str, metadata: &file::MetadataPtr, ui: &mut UIState) -> Event
     } else if let Some(lineno) = try_parse_lineno(cmd) {
         // We present the line number as 1-based, but should allow :0 as input
         let lineno = std::cmp::max(lineno, 1) - 1;
-        ui.scroll_to(metadata, lineno);
+        ui.scroll_to_y(metadata, lineno);
         ui.cmd = Command::Idle;
         return EventResult::Continue;
     } else {

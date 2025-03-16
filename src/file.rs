@@ -1,4 +1,5 @@
 use memmap::Mmap;
+use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
 use std::{cmp::max, io::Error};
@@ -27,31 +28,57 @@ impl File {
                 None => false,
             });
 
-        let mut bytes: u64 = 0;
+        let mut total_bytes: u64 = 0;
 
         for line in lines {
             let mut metadata = metadata.lock().unwrap();
             metadata.num_lines += 1;
-            metadata.line_to_byte_idx.push(bytes);
-            bytes += line.len() as u64;
+            metadata.line_to_byte_idx.push(total_bytes);
 
-            // TODO: Fix this for non-ASCII text
-            let num_cols = line.len() as u64;
+            let num_bytes = line.len() as u64;
+            metadata.line_to_num_bytes.push(num_bytes);
+            total_bytes += num_bytes;
+
+            let chars = from_utf8(line).unwrap();
+            let mut num_cols: u64 = 0;
+            for _ in chars.char_indices() {
+                num_cols += 1;
+            }
+
             metadata.line_to_num_cols.push(num_cols);
             metadata.max_num_cols = max(metadata.max_num_cols, num_cols);
         }
     }
 
+    fn cols_to_bytes(s: &str, col_start: usize, col_end: usize) -> (usize, usize) {
+        let mut start: usize = s.len();
+        let mut end: usize = s.len();
+        let mut col = 0;
+        for (pos, _) in s.char_indices() {
+            if col == col_start {
+                start = pos;
+            }
+            if col == col_end {
+                end = pos;
+            }
+            col += 1;
+        }
+        (start, end)
+    }
+
     pub fn get_text(&self, metadata: &Metadata, line: u64, col_start: u64, col_end: u64) -> &str {
         use std::cmp::min;
-        use std::str::from_utf8;
 
         let line_idx = line as usize;
-        let byte_begin = (metadata.line_to_byte_idx[line_idx] + col_start) as usize;
-        let num_cols = (min(metadata.line_to_num_cols[line_idx], col_end) - col_start) as usize;
-        let byte_end = byte_begin + num_cols;
+        let byte_begin = metadata.line_to_byte_idx[line_idx] as usize;
+        let byte_end = byte_begin + metadata.line_to_num_bytes[line_idx] as usize;
 
-        from_utf8(&self.mmap[byte_begin..byte_end]).unwrap()
+        let chars = from_utf8(&self.mmap[byte_begin..byte_end]).unwrap();
+        let col_end = min(col_end as usize, chars.len());
+        let col_start = min(col_start as usize, col_end);
+
+        let (slice_start, slice_end) = Self::cols_to_bytes(chars, col_start, col_end);
+        &chars[slice_start..slice_end]
     }
 }
 
@@ -61,6 +88,7 @@ pub struct Metadata {
 
     // mapping of line no to byte position in mmap file
     line_to_byte_idx: Vec<u64>,
+    line_to_num_bytes: Vec<u64>,
     line_to_num_cols: Vec<u64>,
 }
 
@@ -72,8 +100,18 @@ impl Metadata {
             num_lines: 0,
             max_num_cols: 0,
             line_to_byte_idx: vec![],
+            line_to_num_bytes: vec![],
             line_to_num_cols: vec![],
         };
         Arc::new(Mutex::new(m))
+    }
+
+    pub fn num_cols(&self, line: u64) -> u64 {
+        let line_idx = line as usize;
+        if line_idx < self.line_to_num_cols.len() {
+            self.line_to_num_cols[line_idx]
+        } else {
+            0
+        }
     }
 }
