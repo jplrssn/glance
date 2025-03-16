@@ -2,6 +2,7 @@
 name = "glance"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/jplrssn/glance"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,3 +12,8 @@ crossterm = "0.28.1"
 memmap = "0.7.0"
 ratatui = "0.29.0"
 simdutf8 = "0.1.5"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
