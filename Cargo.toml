@@ -10,3 +10,4 @@ clap = { version = "4.5.32", features = ["derive"] }
 crossterm = "0.28.1"
 memmap = "0.7.0"
 ratatui = "0.29.0"
+simdutf8 = "0.1.5"

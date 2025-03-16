@@ -1,5 +1,5 @@
 use memmap::Mmap;
-use std::str::from_utf8;
+use simdutf8::basic::from_utf8;
 use std::sync::{Arc, Mutex};
 use std::{cmp::max, io::Error};
 
@@ -40,7 +40,7 @@ impl File {
 
             let chars = from_utf8(line).unwrap();
             let mut num_cols: u64 = 0;
-            for _ in chars.char_indices() {
+            for _ in chars.chars() {
                 num_cols += 1;
             }
 
