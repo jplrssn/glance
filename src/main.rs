@@ -6,6 +6,7 @@ use ratatui::text::{Line, Text};
 use ratatui::widgets::block::Block;
 use ratatui::Frame;
 
+use std::fs::metadata;
 use std::sync::Arc;
 use std::thread;
 
@@ -56,6 +57,16 @@ struct UIState {
 }
 
 impl UIState {
+    fn scroll_to(&mut self, metadata: &file::MetadataPtr, line: u64) {
+        let metadata = metadata.lock().unwrap();
+        let newpos = if metadata.num_lines > 0 {
+            std::cmp::min(line, metadata.num_lines - 1)
+        } else {
+            0
+        };
+        self.cur_line = newpos;
+    }
+
     fn scroll_up(&mut self, amt: u64) {
         // Avoid underflow
         let newpos: u64 = if amt > self.cur_line {
@@ -125,7 +136,7 @@ fn handle_event(
     match event {
         Event::Key(key) => match (key.code, &mut ui.cmd) {
             (KeyCode::Enter, Command::Cmd(cmd)) => {
-                return parse_cmd(&cmd.clone(), ui);
+                return parse_cmd(&cmd.clone(), metadata, ui);
             }
             (KeyCode::Char(':'), Command::Idle) => {
                 ui.cmd = Command::Cmd(String::from(":"));
@@ -149,13 +160,27 @@ fn handle_event(
     return EventResult::Continue;
 }
 
-fn parse_cmd(cmd: &str, ui: &mut UIState) -> EventResult {
-    match cmd {
-        ":q" => return EventResult::Exit,
-        _ => {
-            ui.cmd = Command::Error(format!("Invalid command: '{}'", cmd));
-            return EventResult::Continue;
+fn try_parse_lineno(cmd: &str) -> Option<u64> {
+    if cmd.len() >= 2 {
+        if let Ok(line) = cmd[1..].parse::<u64>() {
+            return Some(line);
         }
+    }
+    return None;
+}
+
+fn parse_cmd(cmd: &str, metadata: &file::MetadataPtr, ui: &mut UIState) -> EventResult {
+    if cmd == ":q" {
+        return EventResult::Exit;
+    } else if let Some(lineno) = try_parse_lineno(cmd) {
+        // We present the line number as 1-based, but should allow :0 as input
+        let lineno = std::cmp::max(lineno, 1) - 1;
+        ui.scroll_to(metadata, lineno);
+        ui.cmd = Command::Idle;
+        return EventResult::Continue;
+    } else {
+        ui.cmd = Command::Error(format!("Invalid command: '{}'", cmd));
+        return EventResult::Continue;
     }
 }
 
