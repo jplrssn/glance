@@ -104,4 +104,12 @@ impl Metadata {
         };
         Arc::new(Mutex::new(m))
     }
+
+    pub fn num_cols_in_line(&self, line: u64) -> u64 {
+        if line >= self.line_to_num_cols.len() as u64 {
+            0
+        } else {
+            self.line_to_num_cols[line as usize]
+        }
+    }
 }

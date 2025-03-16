@@ -7,7 +7,7 @@ use ratatui::widgets::block::Block;
 use ratatui::Frame;
 
 use std::sync::Arc;
-use std::thread;
+use std::{thread, u64};
 
 mod file;
 
@@ -100,11 +100,17 @@ impl UIState {
         let metadata = metadata.lock().unwrap();
         let max_col = metadata.max_num_cols;
         let newpos = if max_col > 0 {
-            std::cmp::min(self.cur_col + amt, max_col - 1)
+            std::cmp::min(self.cur_col + amt, max_col - 2)
         } else {
             0
         };
         self.cur_col = newpos;
+    }
+
+    fn scroll_to_line_end(&mut self, metadata: &file::MetadataPtr) {
+        let metadata = metadata.lock().unwrap();
+        let max_col = metadata.num_cols_in_line(self.cur_line);
+        self.cur_col = if max_col > 0 { max_col - 2 } else { 0 };
     }
 }
 
@@ -170,13 +176,19 @@ fn handle_event(
             (KeyCode::Down, _) => ui.scroll_down(metadata, 1),
             (KeyCode::Left, _) => ui.scroll_left(1),
             (KeyCode::Right, _) => ui.scroll_right(metadata, 1),
+
+            (KeyCode::Char('0'), Command::Idle) => ui.cur_col = 0,
+            (KeyCode::Char('^'), Command::Idle) => ui.cur_col = 0,
+
+            (KeyCode::Char('$'), Command::Idle) => ui.scroll_to_line_end(metadata),
+
             _ => {}
         },
         Event::Mouse(mouse) => match (mouse.kind, &mut ui.cmd) {
             (MouseEventKind::ScrollUp, _) => ui.scroll_up(1),
             (MouseEventKind::ScrollDown, _) => ui.scroll_down(metadata, 1),
-            (MouseEventKind::ScrollLeft, _) => ui.scroll_left(1),
-            (MouseEventKind::ScrollRight, _) => ui.scroll_right(metadata, 1),
+            (MouseEventKind::ScrollLeft, _) => ui.scroll_left(5),
+            (MouseEventKind::ScrollRight, _) => ui.scroll_right(metadata, 5),
             _ => {}
         },
         _ => {}
